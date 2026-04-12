@@ -815,7 +815,10 @@ function enviar() {
   adicionarTyping();
   setLoading(true);
 
-  window.parent.postMessage({ type: 'pergunta', texto }, '*');
+  // Envia pergunta ao Streamlit via query param (navegação direta no iframe)
+  const url = new URL(window.location.href);
+  url.searchParams.set('q', texto);
+  window.location.href = url.toString();
 }
 </script>
 </body>
@@ -1038,7 +1041,20 @@ def responder(chroma_store, bm25, reranker, llm, pergunta: str) -> dict:
     return {"resposta": resposta.content, "fontes": fontes, "tipo": tipo, "top_k": top_k}
 
 # ---------------------------------------------------------------------------
-# Streamlit — orquestrador mínimo
+# Streamlit — orquestrador
+# ---------------------------------------------------------------------------
+#
+# ARQUITETURA:
+#   components.html() roda num iframe com sandbox — scripts externos via
+#   st.markdown() não alcançam o iframe, e postMessage é bloqueado.
+#
+#   Solução:
+#   1. Todos os dados (init + histórico de chat) são embutidos diretamente
+#      no HTML como JSON antes de renderizar.
+#   2. O JS do iframe navega via query param (?q=...) para enviar a pergunta.
+#   3. O Python captura o query param, processa, salva no session_state e
+#      chama st.rerun() — o iframe é re-renderizado já com a resposta e
+#      o histórico completo embutidos, então o chat nunca some.
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
@@ -1065,75 +1081,111 @@ st.markdown("""
 with st.spinner("🌱 Carregando modelos e indexando documentos..."):
     chroma_store, bm25, reranker_model, llm, contagem, n_pdfs = construir_pipeline()
 
-# Renderiza a UI customizada num iframe que ocupa a tela toda
-components.html(HTML_UI, height=720, scrolling=False)
-
-# Injeta os dados da sidebar no iframe após renderizar
-dados_init = {
-    "type":          "init",
-    "n_pdfs":        n_pdfs,
-    "total_chunks":  sum(contagem.values()),
-    "universidades": sorted(contagem.keys()),
-}
-
-st.markdown(f"""
-<script>
-(function injetar() {{
-  const frame = Array.from(document.querySelectorAll('iframe'))
-                     .find(f => f.contentDocument &&
-                                f.contentDocument.getElementById('chat'));
-  if (frame) {{
-    frame.contentWindow.postMessage({json.dumps(dados_init)}, '*');
-  }} else {{
-    setTimeout(injetar, 300);
-  }}
-}})();
-</script>
-""", unsafe_allow_html=True)
-
-# Bridge: captura mensagem do iframe via query param e processa
-pergunta_qp = st.query_params.get("q", None)
-ultima_q    = st.session_state.get("ultima_q", None)
+# ── Processa pergunta ANTES de renderizar o HTML ───────────────────────────
+pergunta_qp = st.query_params.get("q", "")
+ultima_q    = st.session_state.get("ultima_q", "")
 
 if pergunta_qp and pergunta_qp != ultima_q:
     st.session_state["ultima_q"] = pergunta_qp
-
+    # Adiciona a mensagem do usuário ao histórico
+    if "historico" not in st.session_state:
+        st.session_state["historico"] = []
+    st.session_state["historico"].append({"role": "user", "texto": pergunta_qp})
+    # Processa e adiciona resposta ao histórico
     with st.spinner("Consultando documentos..."):
         resultado = responder(chroma_store, bm25, reranker_model, llm, pergunta_qp)
-
-    dados_resp = {
-        "type":   "resposta",
+    st.session_state["historico"].append({
+        "role":   "assistant",
         "texto":  resultado["resposta"],
         "fontes": resultado["fontes"],
         "tipo":   resultado["tipo"],
         "top_k":  resultado["top_k"],
-    }
+    })
+    st.query_params.clear()
+    st.rerun()
 
-    st.markdown(f"""
+# ── Prepara dados para embutir no HTML ────────────────────────────────────
+dados_init = {
+    "n_pdfs":        n_pdfs,
+    "total_chunks":  sum(contagem.values()),
+    "universidades": sorted(contagem.keys()),
+}
+historico = st.session_state.get("historico", [])
+
+# ── Bloco JS injetado logo após <body> ────────────────────────────────────
+_init_js = f"""
 <script>
-(function enviar() {{
-  const frame = Array.from(document.querySelectorAll('iframe'))
-                     .find(f => f.contentDocument &&
-                                f.contentDocument.getElementById('chat'));
-  if (frame) {{
-    frame.contentWindow.postMessage({json.dumps(dados_resp)}, '*');
-  }} else {{
-    setTimeout(enviar, 300);
+  window.__REGIA_INIT__      = {json.dumps(dados_init)};
+  window.__REGIA_HISTORICO__ = {json.dumps(historico)};
+</script>
+"""
+
+# ── Bridge JS injetado logo antes de </body> ──────────────────────────────
+_bridge_js = """
+<script>
+// Preenche sidebar com dados do Python
+(function() {{
+  const init = window.__REGIA_INIT__;
+  if (!init) return;
+  const pdfEl = document.getElementById('stat-pdfs');
+  if (pdfEl) pdfEl.textContent = init.n_pdfs;
+  const chunkEl = document.getElementById('stat-chunks');
+  if (chunkEl) {{
+    const tc = init.total_chunks;
+    chunkEl.textContent = tc > 999 ? (tc/1000).toFixed(1)+'k' : tc;
+  }}
+  const ul = document.getElementById('uni-list');
+  if (ul) {{
+    ul.innerHTML = '';
+    (init.universidades || []).forEach(u => {{
+      const el = document.createElement('div');
+      el.className = 'uni-tag';
+      el.innerHTML = '<span class="uni-dot"></span>' + u;
+      el.onclick = () => {{
+        const inp = document.getElementById('pergunta');
+        inp.value = 'Qual a política de IA da ' + u + '?';
+        autoResize(inp);
+        inp.focus();
+      }};
+      ul.appendChild(el);
+    }});
   }}
 }})();
-</script>
-""", unsafe_allow_html=True)
 
-# Bridge JS: intercepta postMessage do iframe e dispara rerun via query param
-st.markdown("""
-<script>
-window.addEventListener('message', function(e) {
-  if (e.data && e.data.type === 'pergunta') {
-    const url = new URL(window.location.href);
-    url.searchParams.set('q', e.data.texto);
-    window.history.replaceState({}, '', url.toString());
-    window.location.reload();
-  }
-});
+// Restaura histórico de chat embutido
+(function() {{
+  const hist = window.__REGIA_HISTORICO__;
+  if (!hist || !hist.length) return;
+  hist.forEach(msg => {{
+    if (msg.role === 'user') {{
+      appendMsg('user', msg.texto);
+    }} else {{
+      appendMsg('assistant', msg.texto, msg.fontes, msg.tipo, msg.top_k);
+    }}
+  }});
+}})();
+
+// Sobrescreve enviar() para usar query param (único bridge confiável no Streamlit)
+function enviar() {{
+  if (aguardando) return;
+  const inp   = document.getElementById('pergunta');
+  const texto = inp.value.trim();
+  if (!texto) return;
+  appendMsg('user', texto);
+  inp.value = '';
+  inp.style.height = 'auto';
+  adicionarTyping();
+  setLoading(true);
+  const url = new URL(window.location.href);
+  url.searchParams.set('q', texto);
+  window.location.href = url.toString();
+}}
 </script>
-""", unsafe_allow_html=True)
+"""
+
+# ── Monta o HTML final com dados embutidos ────────────────────────────────
+html_final = HTML_UI.replace("<body>", "<body>\n" + _init_js, 1)
+html_final = html_final.replace("</body>", _bridge_js + "\n</body>", 1)
+
+# ── Renderiza o iframe ────────────────────────────────────────────────────
+components.html(html_final, height=800, scrolling=False)
