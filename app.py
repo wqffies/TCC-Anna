@@ -48,7 +48,7 @@ ALIASES_UNIVERSIDADE = {
     "ufg": "UFG", "goias": "UFG", "goiás": "UFG",
     "ufma": "UFMA", "maranhao": "UFMA", "maranhão": "UFMA",
     "ufmg": "UFMG", "minas gerais": "UFMG",
-    "ufms": "UFMS", "mato grosso" : "UFMS"
+    "ufms": "UFMS", "mato grosso" : "UFMS",
     "ufop": "UFOP", "ouro preto": "UFOP",
     "ufrj": "UFRJ", "rio de janeiro": "UFRJ",
     "ufu": "UFU", "uberlandia": "UFU", "uberlândia": "UFU",
