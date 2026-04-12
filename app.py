@@ -1,9 +1,8 @@
 """
 RegIA - Regulamentacoes de IA em Universidades Federais
-Interface customizada via st.components.v1.html()
+Interface nativa do Streamlit com CSS customizado (sem iframe/bridge JS)
 """
 
-import json
 import os
 import re
 from collections import Counter
@@ -12,7 +11,6 @@ from typing import List
 
 import fitz
 import streamlit as st
-import streamlit.components.v1 as components
 from langchain_chroma import Chroma
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
@@ -64,765 +62,6 @@ SYSTEM_PROMPT = (
     "Se a informacao nao estiver nos trechos, diga explicitamente que nao encontrou nos documentos. "
     "Responda sempre em portugues brasileiro."
 )
-
-# ---------------------------------------------------------------------------
-# HTML da interface completa
-# ---------------------------------------------------------------------------
-
-HTML_UI = """<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Sora:wght@300;400;500&display=swap" rel="stylesheet">
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --bg:           #0F1612;
-  --bg2:          #141D17;
-  --bg3:          #1A2620;
-  --surface:      #1F2E24;
-  --surface2:     #27382C;
-  --verde:        #5DBE85;
-  --verde-dim:    #3A8A5C;
-  --verde-faint:  rgba(93,190,133,0.09);
-  --verde-glow:   rgba(93,190,133,0.15);
-  --rosa:         #E8899A;
-  --rosa-dim:     #C45E72;
-  --rosa-faint:   rgba(232,137,154,0.09);
-  --texto:        #D9E8DC;
-  --texto2:       #8AAF94;
-  --texto3:       #4E7058;
-  --borda:        rgba(93,190,133,0.14);
-  --borda2:       rgba(93,190,133,0.28);
-}
-
-html, body {
-  height: 100%;
-  background: var(--bg);
-  color: var(--texto);
-  font-family: 'Sora', sans-serif;
-  font-size: 14px;
-  line-height: 1.65;
-  overflow: hidden;
-}
-
-/* ─── Layout raiz ─── */
-.shell {
-  display: flex;
-  height: 100vh;
-  width: 100%;
-}
-
-/* ─── Sidebar ─── */
-.sidebar {
-  width: 252px;
-  flex-shrink: 0;
-  background: var(--bg2);
-  border-right: 1px solid var(--borda);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.brand {
-  padding: 26px 22px 20px;
-  border-bottom: 1px solid var(--borda);
-  flex-shrink: 0;
-}
-
-.brand-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 5px;
-}
-
-.leaf-icon {
-  width: 36px;
-  height: 36px;
-  background: var(--rosa-dim);
-  border-radius: 50% 50% 50% 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.leaf-icon svg { width: 18px; height: 18px; fill: #fff; }
-
-.brand-name {
-  font-family: 'Playfair Display', serif;
-  font-size: 24px;
-  font-weight: 600;
-  color: #E8EDE9;
-  letter-spacing: 0.02em;
-  line-height: 1;
-}
-
-.brand-tagline {
-  font-size: 10.5px;
-  color: var(--texto3);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.sidebar-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--surface2) transparent;
-}
-
-.sidebar-section { padding: 0 18px; margin-bottom: 22px; }
-
-.sec-label {
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--texto3);
-  margin-bottom: 10px;
-}
-
-.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-
-.stat-box {
-  background: var(--surface);
-  border: 1px solid var(--borda);
-  border-radius: 9px;
-  padding: 9px 12px;
-}
-
-.stat-num {
-  font-family: 'Playfair Display', serif;
-  font-size: 22px;
-  color: var(--verde);
-  line-height: 1;
-}
-
-.stat-lbl { font-size: 10px; color: var(--texto3); margin-top: 2px; }
-
-.divider {
-  border: none;
-  border-top: 1px solid var(--borda);
-  margin: 2px 18px 18px;
-}
-
-.uni-list { display: flex; flex-direction: column; gap: 2px; }
-
-.uni-tag {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 9px;
-  border-radius: 7px;
-  font-size: 12px;
-  color: var(--texto2);
-  cursor: pointer;
-  transition: background 0.14s, color 0.14s;
-  border: 1px solid transparent;
-  user-select: none;
-}
-
-.uni-tag:hover {
-  background: var(--verde-faint);
-  border-color: var(--borda);
-  color: var(--verde);
-}
-
-.uni-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--rosa);
-  flex-shrink: 0;
-}
-
-.examples { display: flex; flex-direction: column; gap: 5px; }
-
-.example-chip {
-  background: var(--surface);
-  border: 1px solid var(--borda);
-  border-radius: 8px;
-  padding: 8px 11px;
-  font-size: 11.5px;
-  color: var(--texto2);
-  cursor: pointer;
-  transition: background 0.14s, border-color 0.14s, color 0.14s;
-  line-height: 1.45;
-  user-select: none;
-}
-
-.example-chip:hover {
-  background: var(--verde-faint);
-  border-color: var(--verde-dim);
-  color: var(--verde);
-}
-
-/* ─── Main ─── */
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--bg);
-}
-
-.topbar {
-  padding: 18px 28px 16px;
-  border-bottom: 1px solid var(--borda);
-  flex-shrink: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.topbar-title {
-  font-family: 'Playfair Display', serif;
-  font-size: 17px;
-  font-weight: 400;
-  color: #E8EDE9;
-}
-
-.topbar-sub {
-  font-size: 11.5px;
-  color: var(--texto3);
-}
-
-/* ─── Área de chat ─── */
-.chat-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px 28px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--surface2) transparent;
-}
-
-/* Boas-vindas */
-.welcome {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  text-align: center;
-  padding: 40px 20px;
-  animation: fadeUp 0.5s ease both;
-}
-
-.welcome-icon {
-  width: 60px; height: 60px;
-  background: var(--rosa-dim);
-  border-radius: 50% 50% 50% 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 18px;
-}
-
-.welcome-icon svg { width: 30px; height: 30px; fill: #fff; }
-
-.welcome h2 {
-  font-family: 'Playfair Display', serif;
-  font-size: 26px;
-  font-weight: 600;
-  color: #E8EDE9;
-  margin-bottom: 10px;
-}
-
-.welcome p {
-  font-size: 13.5px;
-  color: var(--texto2);
-  max-width: 360px;
-  line-height: 1.7;
-}
-
-/* ─── Mensagens ─── */
-.msg-row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  animation: fadeUp 0.28s ease both;
-}
-
-.msg-row.user { flex-direction: row-reverse; }
-
-.avatar {
-  width: 32px; height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 500;
-  flex-shrink: 0;
-  letter-spacing: 0.02em;
-}
-
-.avatar.bot {
-  background: var(--surface2);
-  border: 1.5px solid var(--verde-dim);
-  color: var(--verde);
-}
-
-.avatar.user {
-  background: var(--surface2);
-  border: 1.5px solid var(--rosa-dim);
-  color: var(--rosa);
-}
-
-.bubble-wrap { max-width: 78%; display: flex; flex-direction: column; }
-.msg-row.user .bubble-wrap { align-items: flex-end; }
-
-.bubble {
-  padding: 13px 17px;
-  border-radius: 14px;
-  font-size: 13.5px;
-  line-height: 1.75;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* Texto do bot: fundo levemente diferente, borda verde sutil */
-.bubble.bot {
-  background: var(--bg3);
-  border: 1px solid var(--borda);
-  color: #D9E8DC;           /* contraste alto sobre bg3 */
-  border-top-left-radius: 3px;
-}
-
-/* Texto do usuário: fundo levemente rosa */
-.bubble.user {
-  background: var(--surface);
-  border: 1px solid rgba(232,137,154,0.18);
-  color: #D9E8DC;           /* mesmo contraste */
-  border-top-right-radius: 3px;
-}
-
-.meta {
-  margin-top: 7px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.meta-tag {
-  font-size: 10.5px;
-  color: var(--texto2);
-  padding: 2px 9px;
-  border: 1px solid var(--borda);
-  border-radius: 20px;
-  background: var(--bg2);
-}
-
-.fontes-toggle {
-  font-size: 10.5px;
-  color: var(--verde);
-  background: var(--verde-faint);
-  border: 1px solid rgba(93,190,133,0.22);
-  border-radius: 20px;
-  padding: 2px 10px;
-  cursor: pointer;
-  font-family: 'Sora', sans-serif;
-  transition: background 0.14s;
-}
-
-.fontes-toggle:hover { background: var(--verde-glow); }
-
-.fontes-box {
-  margin-top: 6px;
-  background: var(--bg2);
-  border: 1px solid var(--borda);
-  border-radius: 9px;
-  padding: 9px 13px;
-  display: none;
-}
-
-.fontes-box.open { display: block; }
-
-.fonte-item {
-  font-size: 11.5px;
-  color: var(--texto2);
-  padding: 3px 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.fonte-item::before {
-  content: '';
-  width: 4px; height: 4px;
-  border-radius: 50%;
-  background: var(--verde-dim);
-  flex-shrink: 0;
-}
-
-/* Typing indicator */
-.typing { display: flex; align-items: center; gap: 5px; padding: 12px 16px; }
-.typing span {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--verde-dim);
-  animation: blink 1.2s ease-in-out infinite;
-}
-.typing span:nth-child(2) { animation-delay: 0.2s; }
-.typing span:nth-child(3) { animation-delay: 0.4s; }
-
-/* ─── Barra de input ─── */
-.input-bar {
-  padding: 14px 28px 20px;
-  border-top: 1px solid var(--borda);
-  flex-shrink: 0;
-  background: var(--bg);
-}
-
-.input-inner {
-  display: flex;
-  align-items: flex-end;
-  gap: 9px;
-  background: var(--bg2);
-  border: 1.5px solid var(--borda2);
-  border-radius: 14px;
-  padding: 9px 9px 9px 17px;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.input-inner:focus-within {
-  border-color: var(--verde-dim);
-  box-shadow: 0 0 0 3px rgba(93,190,133,0.07);
-}
-
-.input-inner textarea {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  font-family: 'Sora', sans-serif;
-  font-size: 13.5px;
-  color: #D9E8DC;           /* texto claro sobre fundo escuro */
-  line-height: 1.55;
-  max-height: 130px;
-  min-height: 22px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-.input-inner textarea::placeholder {
-  color: var(--texto3);     /* placeholder mais escuro, ainda legível */
-}
-
-.send-btn {
-  width: 38px; height: 38px;
-  border-radius: 9px;
-  background: var(--verde);
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.14s, transform 0.1s;
-}
-
-.send-btn:hover  { background: var(--verde-dim); }
-.send-btn:active { transform: scale(0.95); }
-.send-btn:disabled { background: var(--surface2); cursor: not-allowed; }
-
-.send-btn svg { width: 16px; height: 16px; fill: #0F1612; }
-
-.input-hint {
-  text-align: center;
-  font-size: 10.5px;
-  color: var(--texto3);
-  margin-top: 8px;
-}
-
-/* ─── Animações ─── */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes blink {
-  0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
-  40%            { transform: scale(1);   opacity: 1; }
-}
-
-/* ─── Responsivo mobile ─── */
-@media (max-width: 640px) {
-  .sidebar { display: none; }
-  .topbar  { padding: 13px 14px 11px; }
-  .chat-scroll { padding: 14px 14px 8px; gap: 18px; }
-  .input-bar   { padding: 10px 14px 14px; }
-  .bubble      { font-size: 13px; }
-  .bubble-wrap { max-width: 92%; }
-  .welcome h2  { font-size: 22px; }
-}
-</style>
-</head>
-<body>
-<div class="shell">
-
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-row">
-        <div class="leaf-icon">
-          <svg viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 008 20C19 20 22 3 22 3c-1 2-8 2-12 4 2.5-2.5 7-4.5 9-5.5-2.5.5-5.5 2-7.5 4z"/></svg>
-        </div>
-        <span class="brand-name">RegIA</span>
-      </div>
-      <div class="brand-tagline">Regulamentações · Universidades Federais</div>
-    </div>
-
-    <div class="sidebar-body">
-      <div class="sidebar-section">
-        <div class="sec-label">Base de dados</div>
-        <div class="stats-row">
-          <div class="stat-box">
-            <div class="stat-num" id="stat-pdfs">—</div>
-            <div class="stat-lbl">PDFs</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-num" id="stat-chunks">—</div>
-            <div class="stat-lbl">Chunks</div>
-          </div>
-        </div>
-      </div>
-
-      <hr class="divider">
-
-      <div class="sidebar-section">
-        <div class="sec-label">Universidades disponíveis</div>
-        <div class="uni-list" id="uni-list"></div>
-      </div>
-
-      <hr class="divider">
-
-      <div class="sidebar-section">
-        <div class="sec-label">Exemplos de perguntas</div>
-        <div class="examples">
-          <div class="example-chip" onclick="useExample(this)">A UFPB permite uso de IA em trabalhos acadêmicos?</div>
-          <div class="example-chip" onclick="useExample(this)">Compare as políticas da UFMG e da UFRJ sobre IA em provas.</div>
-          <div class="example-chip" onclick="useExample(this)">Quais universidades proíbem completamente o uso de IA?</div>
-          <div class="example-chip" onclick="useExample(this)">O que a UNIFESP diz sobre plágio com IA?</div>
-        </div>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Main -->
-  <main class="main">
-    <div class="topbar">
-      <span class="topbar-title">Consulta de Regulamentações</span>
-      <span class="topbar-sub">Respostas baseadas exclusivamente nos documentos oficiais</span>
-    </div>
-
-    <div class="chat-scroll" id="chat">
-      <div class="welcome" id="welcome">
-        <div class="welcome-icon">
-          <svg viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 008 20C19 20 22 3 22 3c-1 2-8 2-12 4 2.5-2.5 7-4.5 9-5.5-2.5.5-5.5 2-7.5 4z"/></svg>
-        </div>
-        <h2>Olá, sou o RegIA</h2>
-        <p>Seu assistente para consultar as regulamentações de uso de Inteligência Artificial nas universidades federais brasileiras. Faça uma pergunta ou escolha um exemplo ao lado.</p>
-      </div>
-    </div>
-
-    <div class="input-bar">
-      <div class="input-inner">
-        <textarea id="pergunta" rows="1"
-          placeholder="Pergunte sobre regulamentações de IA nas universidades federais..."
-          onkeydown="handleKey(event)"
-          oninput="autoResize(this)"></textarea>
-        <button class="send-btn" id="send-btn" onclick="enviar()">
-          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
-      </div>
-      <div class="input-hint">Enter para enviar &nbsp;·&nbsp; Shift+Enter para nova linha</div>
-    </div>
-  </main>
-</div>
-
-<script>
-let aguardando = false;
-
-window.addEventListener('message', (e) => {
-  if (!e.data) return;
-  const d = e.data;
-
-  if (d.type === 'init') {
-    document.getElementById('stat-pdfs').textContent = d.n_pdfs;
-    const tc = d.total_chunks;
-    document.getElementById('stat-chunks').textContent = tc > 999 ? (tc/1000).toFixed(1)+'k' : tc;
-    const ul = document.getElementById('uni-list');
-    ul.innerHTML = '';
-    (d.universidades || []).sort().forEach(u => {
-      const el = document.createElement('div');
-      el.className = 'uni-tag';
-      el.innerHTML = '<span class="uni-dot"></span>' + u;
-      el.onclick = () => {
-        document.getElementById('pergunta').value = 'Qual a política de IA da ' + u + '?';
-        autoResize(document.getElementById('pergunta'));
-      };
-      ul.appendChild(el);
-    });
-  }
-
-  if (d.type === 'resposta') {
-    removerTyping();
-    appendMsg('assistant', d.texto, d.fontes, d.tipo, d.top_k);
-    setLoading(false);
-  }
-});
-
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 130) + 'px';
-}
-
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
-}
-
-function useExample(el) {
-  document.getElementById('pergunta').value = el.textContent.trim();
-  autoResize(document.getElementById('pergunta'));
-  document.getElementById('pergunta').focus();
-}
-
-function scrollBottom() {
-  const c = document.getElementById('chat');
-  c.scrollTop = c.scrollHeight;
-}
-
-function setLoading(v) {
-  aguardando = v;
-  document.getElementById('send-btn').disabled = v;
-}
-
-function esconderWelcome() {
-  const w = document.getElementById('welcome');
-  if (w) { w.style.display = 'none'; }
-}
-
-function appendMsg(role, texto, fontes, tipo, top_k) {
-  esconderWelcome();
-  const chat = document.getElementById('chat');
-  const row  = document.createElement('div');
-  row.className = 'msg-row ' + (role === 'user' ? 'user' : 'bot');
-
-  const avatar = document.createElement('div');
-  avatar.className = 'avatar ' + (role === 'user' ? 'user' : 'bot');
-  avatar.textContent = role === 'user' ? 'VC' : 'RI';
-
-  const wrap   = document.createElement('div');
-  wrap.className = 'bubble-wrap';
-
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble ' + (role === 'user' ? 'user' : 'bot');
-  bubble.textContent = texto;
-  wrap.appendChild(bubble);
-
-  if (role === 'assistant') {
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-
-    if (tipo) {
-      const tag = document.createElement('span');
-      tag.className = 'meta-tag';
-      const labels = { especifica: 'consulta específica', comparativa: 'consulta comparativa', geral: 'consulta geral' };
-      tag.textContent = (labels[tipo] || tipo) + (top_k ? ' · ' + top_k + ' chunks' : '');
-      meta.appendChild(tag);
-    }
-
-    if (fontes && fontes.length) {
-      const btn = document.createElement('button');
-      btn.className = 'fontes-toggle';
-      btn.textContent = fontes.length + ' fonte' + (fontes.length > 1 ? 's' : '');
-
-      const box = document.createElement('div');
-      box.className = 'fontes-box';
-      fontes.forEach(f => {
-        const item = document.createElement('div');
-        item.className = 'fonte-item';
-        item.textContent = f;
-        box.appendChild(item);
-      });
-
-      btn.onclick = () => box.classList.toggle('open');
-      meta.appendChild(btn);
-      wrap.appendChild(meta);
-      wrap.appendChild(box);
-    } else {
-      wrap.appendChild(meta);
-    }
-  }
-
-  row.appendChild(avatar);
-  row.appendChild(wrap);
-  chat.appendChild(row);
-  scrollBottom();
-}
-
-function adicionarTyping() {
-  esconderWelcome();
-  const chat = document.getElementById('chat');
-  const row  = document.createElement('div');
-  row.className = 'msg-row bot';
-  row.id = 'typing-row';
-
-  const avatar = document.createElement('div');
-  avatar.className = 'avatar bot';
-  avatar.textContent = 'RI';
-
-  const wrap   = document.createElement('div');
-  wrap.className = 'bubble-wrap';
-
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble bot';
-  bubble.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
-  wrap.appendChild(bubble);
-
-  row.appendChild(avatar);
-  row.appendChild(wrap);
-  chat.appendChild(row);
-  scrollBottom();
-}
-
-function removerTyping() {
-  const t = document.getElementById('typing-row');
-  if (t) t.remove();
-}
-
-function enviar() {
-  if (aguardando) return;
-  const inp   = document.getElementById('pergunta');
-  const texto = inp.value.trim();
-  if (!texto) return;
-
-  appendMsg('user', texto);
-  inp.value = '';
-  inp.style.height = 'auto';
-  adicionarTyping();
-  setLoading(true);
-
-  // Envia pergunta ao Streamlit via query param (navegação direta no iframe)
-  const url = new URL(window.location.href);
-  url.searchParams.set('q', texto);
-  window.location.href = url.toString();
-}
-</script>
-</body>
-</html>"""
 
 # ---------------------------------------------------------------------------
 # Utilitarios
@@ -877,18 +116,13 @@ def extrair_texto_pdf(caminho_pdf: Path) -> list:
     return paginas
 
 # ---------------------------------------------------------------------------
-# Pipeline (carregado uma unica vez via cache)
+# Pipeline
 # ---------------------------------------------------------------------------
 
 @st.cache_resource(show_spinner=False)
 def construir_pipeline():
-    """
-    Le os PDFs da pasta /pdfs, indexa e carrega todos os modelos.
-    Executado uma unica vez por instancia; resultado fica em cache.
-    """
     groq_api_key = st.secrets["GROQ_API_KEY"]
 
-    # Modelos
     try:
         embeddings = HuggingFaceEmbeddings(
             model_name=EMBEDDING_MODEL,
@@ -903,48 +137,33 @@ def construir_pipeline():
         )
 
     reranker = CrossEncoder(RERANKER_MODEL, max_length=512)
+    llm = ChatGroq(model=LLM_MODEL, temperature=0.1, groq_api_key=groq_api_key)
 
-    llm = ChatGroq(
-        model=LLM_MODEL,
-        temperature=0.1,
-        groq_api_key=groq_api_key,
-    )
-
-    # Leitura dos PDFs
     pdfs = sorted(PDF_DIR.glob("*.pdf"))
     if not pdfs:
-        st.error(
-            f"Nenhum PDF encontrado na pasta '{PDF_DIR.name}/'. "
-            "Verifique se os arquivos estao no repositorio."
-        )
+        st.error(f"Nenhum PDF encontrado na pasta '{PDF_DIR.name}/'.")
         st.stop()
 
     todas_paginas = []
     for pdf in pdfs:
-        paginas = extrair_texto_pdf(pdf)
-        todas_paginas.extend(paginas)
+        todas_paginas.extend(extrair_texto_pdf(pdf))
 
-    # Chunking
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
-    documentos = []
-    for pagina in todas_paginas:
-        documentos.append(Document(
-            page_content=f"Regulamentacao de IA da {pagina['universidade']}: {pagina['texto']}",
-            metadata={
-                "arquivo":      pagina["arquivo"],
-                "universidade": pagina["universidade"],
-                "pagina":       pagina["pagina"],
-            },
-        ))
+    documentos = [
+        Document(
+            page_content=f"Regulamentacao de IA da {p['universidade']}: {p['texto']}",
+            metadata={"arquivo": p["arquivo"], "universidade": p["universidade"], "pagina": p["pagina"]},
+        )
+        for p in todas_paginas
+    ]
 
     chunks = splitter.split_documents(documentos)
 
-    # Indexacao
     chroma_client = chromadb.EphemeralClient()
     chroma_store = Chroma.from_documents(
         documents=chunks,
@@ -957,7 +176,6 @@ def construir_pipeline():
     bm25.k = TOP_K_EACH
 
     contagem = Counter(c.metadata["universidade"] for c in chunks)
-
     return chroma_store, bm25, reranker, llm, contagem, len(pdfs)
 
 # ---------------------------------------------------------------------------
@@ -986,18 +204,14 @@ def chroma_filtrado(chroma_store, query: str, universidade: str) -> List[Documen
 def retrieval_hibrido(chroma_store, bm25, query: str) -> tuple:
     universidades        = extrair_universidades_da_query(query)
     tipo, top_k_dinamico = classificar_query(universidades)
-
-    res_bm25   = bm25.invoke(query)
-    res_global = chroma_store.similarity_search(query, k=TOP_K_EACH)
-
-    res_filtrados = []
+    res_bm25             = bm25.invoke(query)
+    res_global           = chroma_store.similarity_search(query, k=TOP_K_EACH)
+    res_filtrados        = []
     for uni in universidades:
         res = chroma_filtrado(chroma_store, query, uni)
         res_filtrados.append(res if res else res_global)
-
     if not res_filtrados:
         res_filtrados = [res_global]
-
     candidatos = rrf_multi([res_bm25, res_global] + res_filtrados)
     return candidatos, top_k_dinamico, tipo
 
@@ -1019,81 +233,334 @@ def formatar_contexto(chunks: List[Document]) -> str:
 
 def responder(chroma_store, bm25, reranker, llm, pergunta: str) -> dict:
     candidatos, top_k, tipo = retrieval_hibrido(chroma_store, bm25, pergunta)
-    chunks_relevantes = rerankar(reranker, pergunta, candidatos, top_k)
-    contexto          = formatar_contexto(chunks_relevantes)
-
+    chunks_relevantes       = rerankar(reranker, pergunta, candidatos, top_k)
+    contexto                = formatar_contexto(chunks_relevantes)
     user_prompt = (
         "Com base nos seguintes trechos de regulamentacoes universitarias sobre IA:\n\n"
         + contexto
         + f"\n\nPergunta: {pergunta}"
     )
-
     resposta = llm.invoke([
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=user_prompt),
     ])
-
     fontes = sorted(set(
         f"{c.metadata['universidade']} (pag. {c.metadata['pagina']})"
         for c in chunks_relevantes
     ))
-
     return {"resposta": resposta.content, "fontes": fontes, "tipo": tipo, "top_k": top_k}
 
 # ---------------------------------------------------------------------------
-# Streamlit — orquestrador
-# ---------------------------------------------------------------------------
-#
-# ARQUITETURA:
-#   components.html() roda num iframe com sandbox — scripts externos via
-#   st.markdown() não alcançam o iframe, e postMessage é bloqueado.
-#
-#   Solução:
-#   1. Todos os dados (init + histórico de chat) são embutidos diretamente
-#      no HTML como JSON antes de renderizar.
-#   2. O JS do iframe navega via query param (?q=...) para enviar a pergunta.
-#   3. O Python captura o query param, processa, salva no session_state e
-#      chama st.rerun() — o iframe é re-renderizado já com a resposta e
-#      o histórico completo embutidos, então o chat nunca some.
+# Streamlit — interface nativa com CSS do design original
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
     page_title="RegIA · Regulamentações de IA",
     page_icon="🌿",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# Remove todo o chrome nativo do Streamlit
 st.markdown("""
 <style>
-  #MainMenu, header, footer,
-  [data-testid="stToolbar"],
-  [data-testid="stSidebar"],
-  [data-testid="collapsedControl"] { display: none !important; }
-  .block-container { padding: 0 !important; max-width: 100% !important; }
-  .stApp { background: #0F1612 !important; }
-  iframe { border: none !important; }
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Sora:wght@300;400;500&display=swap');
+
+:root {
+  --bg:          #0F1612;
+  --bg2:         #141D17;
+  --bg3:         #1A2620;
+  --surface:     #1F2E24;
+  --surface2:    #27382C;
+  --verde:       #5DBE85;
+  --verde-dim:   #3A8A5C;
+  --verde-faint: rgba(93,190,133,0.09);
+  --rosa:        #E8899A;
+  --rosa-dim:    #C45E72;
+  --texto:       #D9E8DC;
+  --texto2:      #8AAF94;
+  --texto3:      #4E7058;
+  --borda:       rgba(93,190,133,0.14);
+  --borda2:      rgba(93,190,133,0.28);
+}
+
+/* App background */
+.stApp, [data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+  background: var(--bg) !important;
+  font-family: 'Sora', sans-serif !important;
+  color: var(--texto) !important;
+}
+
+/* Remove chrome nativo */
+#MainMenu, header, footer,
+[data-testid="stToolbar"],
+[data-testid="collapsedControl"] { display: none !important; }
+
+.block-container { padding: 0 !important; max-width: 100% !important; }
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+  background: var(--bg2) !important;
+  border-right: 1px solid var(--borda) !important;
+}
+[data-testid="stSidebar"] * {
+  color: var(--texto2) !important;
+  font-family: 'Sora', sans-serif !important;
+}
+
+/* Chat messages container */
+[data-testid="stChatMessage"] {
+  background: transparent !important;
+  padding: 4px 0 !important;
+}
+
+/* Bubble assistente */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) .stMarkdown p {
+  background: var(--bg3) !important;
+  border: 1px solid var(--borda) !important;
+  border-radius: 14px !important;
+  border-top-left-radius: 3px !important;
+  padding: 13px 17px !important;
+  color: #D9E8DC !important;
+  font-size: 13.5px !important;
+  line-height: 1.75 !important;
+}
+
+/* Bubble usuário */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) .stMarkdown p {
+  background: var(--surface) !important;
+  border: 1px solid rgba(232,137,154,0.18) !important;
+  border-radius: 14px !important;
+  border-top-right-radius: 3px !important;
+  padding: 13px 17px !important;
+  color: #D9E8DC !important;
+  font-size: 13.5px !important;
+  line-height: 1.75 !important;
+}
+
+/* Avatares */
+[data-testid="chatAvatarIcon-assistant"] {
+  background: var(--surface2) !important;
+  border: 1.5px solid var(--verde-dim) !important;
+  color: var(--verde) !important;
+  border-radius: 50% !important;
+}
+[data-testid="chatAvatarIcon-user"] {
+  background: var(--surface2) !important;
+  border: 1.5px solid var(--rosa-dim) !important;
+  color: var(--rosa) !important;
+  border-radius: 50% !important;
+}
+
+/* Chat input */
+[data-testid="stChatInput"] {
+  background: var(--bg2) !important;
+  border: 1.5px solid var(--borda2) !important;
+  border-radius: 14px !important;
+  margin: 0 28px 20px !important;
+}
+[data-testid="stChatInput"]:focus-within {
+  border-color: var(--verde-dim) !important;
+  box-shadow: 0 0 0 3px rgba(93,190,133,0.07) !important;
+}
+[data-testid="stChatInput"] textarea {
+  background: transparent !important;
+  color: #D9E8DC !important;
+  font-family: 'Sora', sans-serif !important;
+  font-size: 13.5px !important;
+}
+[data-testid="stChatInput"] textarea::placeholder { color: var(--texto3) !important; }
+[data-testid="stChatInput"] button { background: var(--verde) !important; border-radius: 9px !important; }
+
+/* Métricas na sidebar */
+[data-testid="stMetric"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--borda) !important;
+  border-radius: 9px !important;
+  padding: 9px 12px !important;
+}
+[data-testid="stMetricValue"] {
+  color: var(--verde) !important;
+  font-family: 'Playfair Display', serif !important;
+  font-size: 22px !important;
+}
+[data-testid="stMetricLabel"] { color: var(--texto3) !important; font-size: 10px !important; }
+
+/* Expander de fontes */
+[data-testid="stExpander"] {
+  background: var(--bg2) !important;
+  border: 1px solid var(--borda) !important;
+  border-radius: 9px !important;
+  margin-top: 4px !important;
+}
+[data-testid="stExpander"] summary { color: var(--verde) !important; font-size: 10.5px !important; }
+
+/* Botões de exemplo */
+.stButton > button {
+  background: var(--surface) !important;
+  border: 1px solid var(--borda) !important;
+  border-radius: 8px !important;
+  color: var(--texto2) !important;
+  font-size: 11.5px !important;
+  font-family: 'Sora', sans-serif !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding: 8px 11px !important;
+}
+.stButton > button:hover {
+  background: var(--verde-faint) !important;
+  border-color: var(--verde-dim) !important;
+  color: var(--verde) !important;
+}
+
+/* Container do chat com scroll */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Scrollbar */
+* { scrollbar-width: thin; scrollbar-color: var(--surface2) transparent; }
+
+/* Tag de consulta */
+.consulta-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  color: var(--texto2);
+  padding: 2px 9px;
+  border: 1px solid var(--borda);
+  border-radius: 20px;
+  background: var(--bg2);
+  margin-top: 6px;
+  font-family: 'Sora', sans-serif;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# Carrega pipeline uma única vez
+# ── Carrega pipeline ────────────────────────────────────────────────────────
 with st.spinner("🌱 Carregando modelos e indexando documentos..."):
     chroma_store, bm25, reranker_model, llm, contagem, n_pdfs = construir_pipeline()
 
-# ── Processa pergunta ANTES de renderizar o HTML ───────────────────────────
-pergunta_qp = st.query_params.get("q", "")
-ultima_q    = st.session_state.get("ultima_q", "")
+# ── Sidebar ─────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style="padding:26px 22px 20px;border-bottom:1px solid var(--borda);margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px">
+        <div style="width:36px;height:36px;background:#C45E72;border-radius:50% 50% 50% 9px;
+                    display:flex;align-items:center;justify-content:center">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="#fff">
+            <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 008 20C19 20 22 3 22 3c-1 2-8 2-12 4 2.5-2.5 7-4.5 9-5.5-2.5.5-5.5 2-7.5 4z"/>
+          </svg>
+        </div>
+        <span style="font-family:'Playfair Display',serif;font-size:24px;font-weight:600;
+                     color:#E8EDE9;letter-spacing:0.02em;line-height:1">RegIA</span>
+      </div>
+      <div style="font-size:10.5px;color:var(--texto3);letter-spacing:0.07em;text-transform:uppercase">
+        Regulamentações · Universidades Federais
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-if pergunta_qp and pergunta_qp != ultima_q:
-    st.session_state["ultima_q"] = pergunta_qp
-    # Adiciona a mensagem do usuário ao histórico
-    if "historico" not in st.session_state:
-        st.session_state["historico"] = []
-    st.session_state["historico"].append({"role": "user", "texto": pergunta_qp})
-    # Processa e adiciona resposta ao histórico
+    st.markdown('<div style="font-size:9.5px;letter-spacing:0.13em;text-transform:uppercase;color:var(--texto3);margin-bottom:10px;padding:0 4px">Base de dados</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("PDFs", n_pdfs)
+    with col2:
+        total = sum(contagem.values())
+        st.metric("Chunks", f"{total/1000:.1f}k" if total > 999 else total)
+
+    st.markdown("<hr style='border:none;border-top:1px solid var(--borda);margin:16px 0'>", unsafe_allow_html=True)
+    st.markdown('<div style="font-size:9.5px;letter-spacing:0.13em;text-transform:uppercase;color:var(--texto3);margin-bottom:10px;padding:0 4px">Universidades disponíveis</div>', unsafe_allow_html=True)
+
+    for uni in sorted(contagem.keys()):
+        st.markdown(f"""<div style="display:flex;align-items:center;gap:8px;padding:6px 9px;
+                        border-radius:7px;font-size:12px;color:var(--texto2)">
+          <span style="width:5px;height:5px;border-radius:50%;background:#E8899A;display:inline-block;flex-shrink:0"></span>
+          {uni}</div>""", unsafe_allow_html=True)
+
+    st.markdown("<hr style='border:none;border-top:1px solid var(--borda);margin:16px 0'>", unsafe_allow_html=True)
+    st.markdown('<div style="font-size:9.5px;letter-spacing:0.13em;text-transform:uppercase;color:var(--texto3);margin-bottom:10px;padding:0 4px">Exemplos de perguntas</div>', unsafe_allow_html=True)
+
+    exemplos = [
+        "A UFPB permite uso de IA em trabalhos acadêmicos?",
+        "Compare as políticas da UFMG e da UFRJ sobre IA em provas.",
+        "Quais universidades proíbem completamente o uso de IA?",
+        "O que a UNIFESP diz sobre plágio com IA?",
+    ]
+    for ex in exemplos:
+        if st.button(ex, key=f"ex_{ex[:30]}"):
+            st.session_state["exemplo_selecionado"] = ex
+            st.rerun()
+
+# ── Topbar ───────────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="padding:18px 28px 16px;border-bottom:1px solid var(--borda);
+            display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+  <span style="font-family:'Playfair Display',serif;font-size:17px;color:#E8EDE9">
+    Consulta de Regulamentações
+  </span>
+  <span style="font-size:11.5px;color:var(--texto3)">
+    Respostas baseadas exclusivamente nos documentos oficiais
+  </span>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Histórico ────────────────────────────────────────────────────────────────
+if "historico" not in st.session_state:
+    st.session_state["historico"] = []
+
+# Área de chat
+chat_area = st.container(height=520, border=False)
+
+with chat_area:
+    if not st.session_state["historico"]:
+        st.markdown("""
+        <div style="display:flex;flex-direction:column;align-items:center;
+                    text-align:center;padding:60px 20px">
+          <div style="width:60px;height:60px;background:#C45E72;border-radius:50% 50% 50% 13px;
+                      display:flex;align-items:center;justify-content:center;margin:0 auto 18px">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="#fff">
+              <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22l1-2.3A4.49 4.49 0 008 20C19 20 22 3 22 3c-1 2-8 2-12 4 2.5-2.5 7-4.5 9-5.5-2.5.5-5.5 2-7.5 4z"/>
+            </svg>
+          </div>
+          <h2 style="font-family:'Playfair Display',serif;font-size:26px;font-weight:600;
+                     color:#E8EDE9;margin-bottom:10px">Olá, sou o RegIA</h2>
+          <p style="font-size:13.5px;color:#8AAF94;max-width:360px;line-height:1.7">
+            Seu assistente para consultar as regulamentações de uso de Inteligência Artificial
+            nas universidades federais brasileiras.
+          </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        for msg in st.session_state["historico"]:
+            with st.chat_message(msg["role"], avatar="RI" if msg["role"] == "assistant" else "VC"):
+                st.write(msg["texto"])
+                if msg["role"] == "assistant" and msg.get("fontes"):
+                    labels = {
+                        "especifica":  "consulta específica",
+                        "comparativa": "consulta comparativa",
+                        "geral":       "consulta geral",
+                    }
+                    tipo_label = labels.get(msg.get("tipo", ""), msg.get("tipo", ""))
+                    st.markdown(
+                        f'<span class="consulta-tag">{tipo_label} · {msg.get("top_k","")} chunks</span>',
+                        unsafe_allow_html=True,
+                    )
+                    with st.expander(f"📄 {len(msg['fontes'])} fonte(s)"):
+                        for fonte in msg["fontes"]:
+                            st.markdown(f"• {fonte}")
+
+# ── Input ─────────────────────────────────────────────────────────────────────
+exemplo = st.session_state.pop("exemplo_selecionado", None)
+pergunta_digitada = st.chat_input(
+    "Pergunte sobre regulamentações de IA nas universidades federais...",
+)
+pergunta = pergunta_digitada or exemplo
+
+if pergunta:
+    st.session_state["historico"].append({"role": "user", "texto": pergunta})
     with st.spinner("Consultando documentos..."):
-        resultado = responder(chroma_store, bm25, reranker_model, llm, pergunta_qp)
+        resultado = responder(chroma_store, bm25, reranker_model, llm, pergunta)
     st.session_state["historico"].append({
         "role":   "assistant",
         "texto":  resultado["resposta"],
@@ -1101,91 +568,4 @@ if pergunta_qp and pergunta_qp != ultima_q:
         "tipo":   resultado["tipo"],
         "top_k":  resultado["top_k"],
     })
-    st.query_params.clear()
     st.rerun()
-
-# ── Prepara dados para embutir no HTML ────────────────────────────────────
-dados_init = {
-    "n_pdfs":        n_pdfs,
-    "total_chunks":  sum(contagem.values()),
-    "universidades": sorted(contagem.keys()),
-}
-historico = st.session_state.get("historico", [])
-
-# ── Bloco JS injetado logo após <body> ────────────────────────────────────
-_init_js = f"""
-<script>
-  window.__REGIA_INIT__      = {json.dumps(dados_init)};
-  window.__REGIA_HISTORICO__ = {json.dumps(historico)};
-</script>
-"""
-
-# ── Bridge JS injetado logo antes de </body> ──────────────────────────────
-_bridge_js = """
-<script>
-// Preenche sidebar com dados do Python
-(function() {{
-  const init = window.__REGIA_INIT__;
-  if (!init) return;
-  const pdfEl = document.getElementById('stat-pdfs');
-  if (pdfEl) pdfEl.textContent = init.n_pdfs;
-  const chunkEl = document.getElementById('stat-chunks');
-  if (chunkEl) {{
-    const tc = init.total_chunks;
-    chunkEl.textContent = tc > 999 ? (tc/1000).toFixed(1)+'k' : tc;
-  }}
-  const ul = document.getElementById('uni-list');
-  if (ul) {{
-    ul.innerHTML = '';
-    (init.universidades || []).forEach(u => {{
-      const el = document.createElement('div');
-      el.className = 'uni-tag';
-      el.innerHTML = '<span class="uni-dot"></span>' + u;
-      el.onclick = () => {{
-        const inp = document.getElementById('pergunta');
-        inp.value = 'Qual a política de IA da ' + u + '?';
-        autoResize(inp);
-        inp.focus();
-      }};
-      ul.appendChild(el);
-    }});
-  }}
-}})();
-
-// Restaura histórico de chat embutido
-(function() {{
-  const hist = window.__REGIA_HISTORICO__;
-  if (!hist || !hist.length) return;
-  hist.forEach(msg => {{
-    if (msg.role === 'user') {{
-      appendMsg('user', msg.texto);
-    }} else {{
-      appendMsg('assistant', msg.texto, msg.fontes, msg.tipo, msg.top_k);
-    }}
-  }});
-}})();
-
-// Sobrescreve enviar() para usar query param (único bridge confiável no Streamlit)
-function enviar() {{
-  if (aguardando) return;
-  const inp   = document.getElementById('pergunta');
-  const texto = inp.value.trim();
-  if (!texto) return;
-  appendMsg('user', texto);
-  inp.value = '';
-  inp.style.height = 'auto';
-  adicionarTyping();
-  setLoading(true);
-  const url = new URL(window.location.href);
-  url.searchParams.set('q', texto);
-  window.location.href = url.toString();
-}}
-</script>
-"""
-
-# ── Monta o HTML final com dados embutidos ────────────────────────────────
-html_final = HTML_UI.replace("<body>", "<body>\n" + _init_js, 1)
-html_final = html_final.replace("</body>", _bridge_js + "\n</body>", 1)
-
-# ── Renderiza o iframe ────────────────────────────────────────────────────
-components.html(html_final, height=800, scrolling=False)
