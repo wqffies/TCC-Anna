@@ -854,7 +854,7 @@ def classificar_query(universidades: list) -> tuple:
     return "geral", TOP_K_GERAL
 
 # ---------------------------------------------------------------------------
-# PDF
+# Extracao de PDF
 # ---------------------------------------------------------------------------
 
 def extrair_texto_pdf(caminho_pdf: Path) -> list:
@@ -865,20 +865,27 @@ def extrair_texto_pdf(caminho_pdf: Path) -> list:
         texto = doc[num_pagina].get_text().strip()
         if len(texto) > 50:
             paginas.append({
-                "texto": texto, "pagina": num_pagina + 1,
-                "arquivo": caminho_pdf.name, "universidade": universidade,
+                "texto":        texto,
+                "pagina":       num_pagina + 1,
+                "arquivo":      caminho_pdf.name,
+                "universidade": universidade,
             })
     doc.close()
     return paginas
 
 # ---------------------------------------------------------------------------
-# Pipeline
+# Pipeline (carregado uma unica vez via cache)
 # ---------------------------------------------------------------------------
 
 @st.cache_resource(show_spinner=False)
 def construir_pipeline():
+    """
+    Le os PDFs da pasta /pdfs, indexa e carrega todos os modelos.
+    Executado uma unica vez por instancia; resultado fica em cache.
+    """
     groq_api_key = st.secrets["GROQ_API_KEY"]
 
+    # Modelos
     try:
         embeddings = HuggingFaceEmbeddings(
             model_name=EMBEDDING_MODEL,
@@ -893,46 +900,65 @@ def construir_pipeline():
         )
 
     reranker = CrossEncoder(RERANKER_MODEL, max_length=512)
-    llm = ChatGroq(model=LLM_MODEL, temperature=0.1, groq_api_key=groq_api_key)
 
+    llm = ChatGroq(
+        model=LLM_MODEL,
+        temperature=0.1,
+        groq_api_key=groq_api_key,
+    )
+
+    # Leitura dos PDFs
     pdfs = sorted(PDF_DIR.glob("*.pdf"))
     if not pdfs:
-        st.error(f"Nenhum PDF encontrado na pasta '{PDF_DIR.name}/'.")
+        st.error(
+            f"Nenhum PDF encontrado na pasta '{PDF_DIR.name}/'. "
+            "Verifique se os arquivos estao no repositorio."
+        )
         st.stop()
 
     todas_paginas = []
     for pdf in pdfs:
-        todas_paginas.extend(extrair_texto_pdf(pdf))
+        paginas = extrair_texto_pdf(pdf)
+        todas_paginas.extend(paginas)
 
+    # Chunking
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
-    documentos = [
-        Document(
-            page_content=f"Regulamentacao de IA da {p['universidade']}: {p['texto']}",
-            metadata={"arquivo": p["arquivo"], "universidade": p["universidade"], "pagina": p["pagina"]},
-        )
-        for p in todas_paginas
-    ]
+    documentos = []
+    for pagina in todas_paginas:
+        documentos.append(Document(
+            page_content=f"Regulamentacao de IA da {pagina['universidade']}: {pagina['texto']}",
+            metadata={
+                "arquivo":      pagina["arquivo"],
+                "universidade": pagina["universidade"],
+                "pagina":       pagina["pagina"],
+            },
+        ))
 
     chunks = splitter.split_documents(documentos)
 
+    # Indexacao
     chroma_client = chromadb.EphemeralClient()
     chroma_store = Chroma.from_documents(
-        documents=chunks, embedding=embeddings,
-        client=chroma_client, collection_name="regulamentacoes_ia",
+        documents=chunks,
+        embedding=embeddings,
+        client=chroma_client,
+        collection_name="regulamentacoes_ia",
     )
 
     bm25 = BM25Retriever.from_documents(chunks)
     bm25.k = TOP_K_EACH
 
     contagem = Counter(c.metadata["universidade"] for c in chunks)
+
     return chroma_store, bm25, reranker, llm, contagem, len(pdfs)
 
 # ---------------------------------------------------------------------------
-# Retrieval & geração
+# Retrieval e geracao
 # ---------------------------------------------------------------------------
 
 def rrf_multi(listas: list, k: int = 60) -> List[Document]:
@@ -940,31 +966,37 @@ def rrf_multi(listas: list, k: int = 60) -> List[Document]:
     for lista in listas:
         for rank, doc in enumerate(lista):
             chave = doc.page_content[:120]
-            scores[chave] = scores.get(chave, 0) + 1 / (k + rank + 1)
+            scores[chave]  = scores.get(chave, 0) + 1 / (k + rank + 1)
             doc_map[chave] = doc
     return [doc_map[c] for c, _ in sorted(scores.items(), key=lambda x: x[1], reverse=True)]
 
 
 def chroma_filtrado(chroma_store, query: str, universidade: str) -> List[Document]:
     try:
-        return chroma_store.similarity_search(query, k=TOP_K_EACH, filter={"universidade": universidade})
+        return chroma_store.similarity_search(
+            query, k=TOP_K_EACH, filter={"universidade": universidade}
+        )
     except Exception:
         return []
 
 
 def retrieval_hibrido(chroma_store, bm25, query: str) -> tuple:
-    universidades = extrair_universidades_da_query(query)
-    tipo, top_k   = classificar_query(universidades)
-    res_bm25      = bm25.invoke(query)
-    res_global    = chroma_store.similarity_search(query, k=TOP_K_EACH)
+    universidades        = extrair_universidades_da_query(query)
+    tipo, top_k_dinamico = classificar_query(universidades)
+
+    res_bm25   = bm25.invoke(query)
+    res_global = chroma_store.similarity_search(query, k=TOP_K_EACH)
+
     res_filtrados = []
     for uni in universidades:
         res = chroma_filtrado(chroma_store, query, uni)
         res_filtrados.append(res if res else res_global)
+
     if not res_filtrados:
         res_filtrados = [res_global]
+
     candidatos = rrf_multi([res_bm25, res_global] + res_filtrados)
-    return candidatos, top_k, tipo
+    return candidatos, top_k_dinamico, tipo
 
 
 def rerankar(reranker, query: str, candidatos: List[Document], top_k: int) -> List[Document]:
@@ -984,12 +1016,13 @@ def formatar_contexto(chunks: List[Document]) -> str:
 
 def responder(chroma_store, bm25, reranker, llm, pergunta: str) -> dict:
     candidatos, top_k, tipo = retrieval_hibrido(chroma_store, bm25, pergunta)
-    chunks_rel = rerankar(reranker, pergunta, candidatos, top_k)
-    contexto   = formatar_contexto(chunks_rel)
+    chunks_relevantes = rerankar(reranker, pergunta, candidatos, top_k)
+    contexto          = formatar_contexto(chunks_relevantes)
 
     user_prompt = (
         "Com base nos seguintes trechos de regulamentacoes universitarias sobre IA:\n\n"
-        + contexto + f"\n\nPergunta: {pergunta}"
+        + contexto
+        + f"\n\nPergunta: {pergunta}"
     )
 
     resposta = llm.invoke([
@@ -998,8 +1031,8 @@ def responder(chroma_store, bm25, reranker, llm, pergunta: str) -> dict:
     ])
 
     fontes = sorted(set(
-        f"{c.metadata['universidade']} (pág. {c.metadata['pagina']})"
-        for c in chunks_rel
+        f"{c.metadata['universidade']} (pag. {c.metadata['pagina']})"
+        for c in chunks_relevantes
     ))
 
     return {"resposta": resposta.content, "fontes": fontes, "tipo": tipo, "top_k": top_k}
