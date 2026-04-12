@@ -533,7 +533,7 @@ with chat_area:
         """, unsafe_allow_html=True)
     else:
         for msg in st.session_state["historico"]:
-            with st.chat_message(msg["role"], avatar="RI" if msg["role"] == "assistant" else "VC"):
+            with st.chat_message(msg["role"], avatar="🌿" if msg["role"] == "assistant" else "👤"):
                 st.write(msg["texto"])
                 if msg["role"] == "assistant" and msg.get("fontes"):
                     labels = {
