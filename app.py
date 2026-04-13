@@ -287,8 +287,17 @@ st.set_page_config(
 # --- CSS: esconde barra superior do Streamlit e estiliza botões da sidebar ---
 st.markdown("""
 <style>
-/* Esconde a barra superior (deploy, fork, share, menu) */
+/* Esconde apenas os botões da toolbar (deploy, fork, share, menu),
+   mas mantém o botão de abrir/fechar a sidebar */
 header[data-testid="stHeader"] {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+#MainMenu,
+header[data-testid="stHeader"] .stAppToolbar,
+header[data-testid="stHeader"] .stToolbar,
+[data-testid="stToolbar"],
+[data-testid="stDecoration"] {
     display: none !important;
 }
 /* Compensa o espaço que a barra ocupava */
