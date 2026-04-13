@@ -287,26 +287,13 @@ st.set_page_config(
 # --- CSS: esconde barra superior do Streamlit e estiliza botões da sidebar ---
 st.markdown("""
 <style>
-/* Esconde apenas os itens da toolbar (deploy, share, menu),
-   preservando o botão de abrir/fechar a sidebar */
-#MainMenu { display: none !important; }
-[data-testid="stToolbar"] { display: none !important; }
-[data-testid="stDecoration"] { display: none !important; }
-[data-testid="stStatusWidget"] { display: none !important; }
+/* Esconde apenas o botão de deploy/share e o menu hamburguer,
+   sem tocar no header — o botão da sidebar fica intacto */
+.stAppDeployButton { visibility: hidden !important; }
+#MainMenu { visibility: hidden !important; }
+[data-testid="stStatusWidget"] { visibility: hidden !important; }
 
-/* Deixa o header sem altura mas sem sumir completamente */
-header[data-testid="stHeader"] {
-    background-color: transparent !important;
-    height: 0 !important;
-    min-height: 0 !important;
-}
-
-/* Garante que o botão de colapso da sidebar apareça */
-[data-testid="collapsedControl"] {
-    display: flex !important;
-}
-
-/* Compensa o espaço */
+/* Compensa o espaço do header */
 .block-container {
     padding-top: 2rem !important;
 }
